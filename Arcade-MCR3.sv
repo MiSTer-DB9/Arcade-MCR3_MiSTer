@@ -90,6 +90,21 @@ module emu
 	output        SDRAM_nRAS,
 	output        SDRAM_nWE, 
 
+
+	//High latency DDR3 RAM interface
+	//Use for non-critical time purposes
+	output        DDRAM_CLK,
+	input         DDRAM_BUSY,
+	output  [7:0] DDRAM_BURSTCNT,
+	output [28:0] DDRAM_ADDR,
+	input  [63:0] DDRAM_DOUT,
+	input         DDRAM_DOUT_READY,
+	output        DDRAM_RD,
+	output [63:0] DDRAM_DIN,
+	output  [7:0] DDRAM_BE,
+	output        DDRAM_WE,
+
+
 	// Open-drain User port.
 	// 0 - D+/RX
 	// 1 - D-/TX
@@ -108,7 +123,6 @@ wire   [5:0] joy_in = {USER_IN[6],USER_IN[3],USER_IN[5],USER_IN[7],USER_IN[1],US
 assign USER_OUT  = |status[31:30] ? {3'b111,joy_split,3'b111,joy_mdsel} : '1;
 assign USER_MODE = |status[31:30] ;
 
-assign LED_USER  = ioctl_download;
 
 
 
@@ -120,7 +134,7 @@ assign HDMI_ARY = status[1] ? 8'd9  : (status[2] | landscape) ? 8'd3 : 8'd4;
 
 `include "build_id.v" 
 localparam CONF_STR = {
-	"A.TAPPER;;",
+	"A.MCR3;;",
 	"H0O1,Aspect Ratio,Original,Wide;",
 	"H2H0O2,Orientation,Vert,Horz;",
 	"O35,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
@@ -164,12 +178,14 @@ wire        ioctl_wr;
 wire [24:0] ioctl_addr;
 wire  [7:0] ioctl_dout;
 wire  [7:0] ioctl_index;
+wire  [7:0] ioctl_data;
+wire        ioctl_wait;
 
 wire [10:0] ps2_key;
 
 //wire [15:0] joy1, joy2;
-wire [15:0] joy1_USB, joy2_USB;
-wire [15:0] joy1 = |status[31:30] ? {
+wire [31:0] joy1_USB, joy2_USB;
+wire [31:0] joy1 = |status[31:30] ? {
 	joydb9md_1[8] | (joydb9md_1[7] & joydb9md_1[6]),// Mode | Stat + A -> Coin 
 	joydb9md_1[11], // Z (dummy) 
 	joydb9md_1[7], // start 1
@@ -186,7 +202,7 @@ wire [15:0] joy1 = |status[31:30] ? {
 	} 
 	: joy1_USB;
 
-wire [15:0] joy2 =  status[31]    ? {
+wire [31:0] joy2 =  status[31]    ? {
 	joydb9md_2[8] | (joydb9md_2[7] & joydb9md_2[6]),// Mode | Stat + A -> Coin 
 	joydb9md_2[7], // start 2
 	joydb9md_1[11], // Z (dummy) 
@@ -202,7 +218,7 @@ wire [15:0] joy2 =  status[31]    ? {
 	joydb9md_2[0]  // R
 	} 
 	: status[30] ? joy1_USB : joy2_USB;
-wire [15:0] joy = joy1 | joy2;
+wire [31:0] joy = joy1 | joy2;
 
 wire [21:0] gamma_bus;
 
@@ -236,7 +252,9 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
+	//.ioctl_dout(ioctl_data),
 	.ioctl_index(ioctl_index),
+	.ioctl_wait(ioctl_wait),
 
 	// .joystick_0(joy1),
 	// .joystick_1(joy2),
@@ -358,10 +376,11 @@ always @(posedge clk_sys) begin
 			'h06: btn_start2        <= pressed; // F2
 			//'h04: btn_start3        <= pressed; // F3
 			//'h0C: btn_start4        <= pressed; // F4
+			'h14: btn_fireA         <= pressed; // lctrl
+			'h11: btn_fireB         <= pressed; // lalt
+			'h29: btn_fireC         <= pressed; // Space
 			'h12: btn_fireD         <= pressed; // l-shift
-			'h14: btn_fireC         <= pressed; // ctrl
-			'h11: btn_fireB         <= pressed; // alt
-			'h29: btn_fireA         <= pressed; // Space
+
 			// JPAC/IPAC/MAME Style Codes
 			'h16: btn_start1        <= pressed; // 1
 			'h1E: btn_start2        <= pressed; // 2
@@ -425,6 +444,8 @@ wire m_fire1c  = btn_fireC  | joy1[6];
 wire m_fire1d  = btn_fireD  | joy1[7];
 wire m_rcw1    =              joy1[8];
 wire m_rccw1   =              joy1[9];
+wire m_spccw1  =              joy1[30];
+wire m_spcw1   =              joy1[31];
 
 wire m_right2  = btn_right2 | joy2[0];
 wire m_left2   = btn_left2  | joy2[1];
@@ -434,8 +455,10 @@ wire m_fire2a  = btn_fire2A | joy2[4];
 wire m_fire2b  = btn_fire2B | joy2[5];
 wire m_fire2c  = btn_fire2C | joy2[6];
 wire m_fire2d  = btn_fire2D | joy2[7];
-wire m_rcw2    =              joy1[8];
-wire m_rccw2   =              joy1[9];
+wire m_rcw2    =              joy2[8];
+wire m_rccw2   =              joy2[9];
+wire m_spccw2  =              joy2[30];
+wire m_spcw2   =              joy2[31];
 
 wire m_right   = m_right1 | m_right2;
 wire m_left    = m_left1  | m_left2; 
@@ -447,12 +470,15 @@ wire m_fire_c  = m_fire1c | m_fire2c;
 wire m_fire_d  = m_fire1d | m_fire2d;
 wire m_rcw     = m_rcw1   | m_rcw2;
 wire m_rccw    = m_rccw1  | m_rccw2;
+wire m_spccw   = m_spccw1 | m_spccw2;
+wire m_spcw    = m_spcw1  | m_spcw2;
 
 reg  [7:0] input_0;
 reg  [7:0] input_1;
 reg  [7:0] input_2;
 reg  [7:0] input_3;
 reg  [7:0] input_4;
+wire [7:0] output_4;
 
 reg mod_tapper = 0;
 reg mod_timber = 0;
@@ -512,10 +538,10 @@ spinner #(10) spinner_tr
 (
 	.clk(clk_sys),
 	.reset(reset),
-	.minus(m_rccw),
-	.plus(m_rcw),
+	.minus(m_rccw | m_spccw),
+	.plus(m_rcw | m_spcw),
 	.strobe(vs),
-	.use_spinner(status[7]),
+	.use_spinner(status[7] | m_spccw | m_spcw),
 	.spin_angle(spin_tron)
 );
 
@@ -538,14 +564,12 @@ arcade_video #(512,240,9) arcade_video
 	.VSync(vs),
 
 	.rotate_ccw(0),
-	.fx(status[5:3])
-);
-
-assign AUDIO_S = 0;
+	.fx(status[5:3]));
+		
 wire [15:0] audio_l, audio_r;
-
-assign AUDIO_L = audio_l;
-assign AUDIO_R = audio_r;
+assign AUDIO_S = mod_journey;
+assign AUDIO_L = mod_journey ? j_aud_l : audio_l;
+assign AUDIO_R = mod_journey ? j_aud_r : audio_r;
 
 mcr3 mcr3
 (
@@ -568,7 +592,8 @@ mcr3 mcr3
 	.input_1(input_1),
 	.input_2(input_2),
 	.input_3(input_3),
-	.input_4(input_4),	
+	.input_4(input_4),
+	.output_4(output_4),	
 	.mcr2p5(mod_journey),
 	.cpu_rom_addr(rom_addr),
 	.cpu_rom_do(rom_do),
@@ -577,8 +602,97 @@ mcr3 mcr3
 	.sp_addr(sp_addr),
 	.sp_graphx32_do(sp_do),
 	.dl_addr(dl_addr),
-	.dl_wr(ioctl_wr&!ioctl_index),
+	.dl_wr(ioctl_wr & rom_download),
 	.dl_data(ioctl_dout)
 );
+
+
+////////////////////////////  WAV PLAYER  ///////////////////////////////////
+//
+//
+
+wire wav_load = ioctl_download && (ioctl_index == 2);
+
+wire wav_data_ready;
+assign DDRAM_CLK = clk_mem;
+ddram ddram
+(
+	.*,
+	.addr(wav_load ? ioctl_addr : wav_addr),
+	.dout(wav_data),
+	.din(ioctl_dout),
+	.we(wav_wr),
+	.rd(wav_want_byte),
+	.ready(wav_data_ready)
+);
+
+
+//
+//  signals for DDRAM
+//
+// NOTE: the wav_wr (we) line doesn't want to stay high. It needs to be high to start, and then can't go high until wav_data_ready
+// we hold the ioctl_wait high (stop the data from HPS) until we get waV_data_ready
+
+reg wav_wr;
+always @(posedge clk_sys) begin
+	reg old_reset;
+
+	old_reset <= reset;
+	if(~old_reset && reset) ioctl_wait <= 0;
+
+	wav_wr <= 0;
+	if(ioctl_wr & wav_load) begin
+		ioctl_wait <= 1;
+		wav_wr <= 1;
+	end
+	else if(~wav_wr & ioctl_wait & wav_data_ready) begin
+		ioctl_wait <= 0;
+	end
+end
+
+reg pause;
+reg wav_loaded = 0;
+always @(posedge clk_sys) begin
+	reg old_load;
+	
+	old_load <= wav_load;
+	if(old_load & ~wav_load) wav_loaded <= 1;
+	
+	pause <= ~output_4[0];
+end
+
+reg  [27:0] wav_addr;
+wire  [7:0] wav_data;
+wire        wav_want_byte;
+wire [15:0] pcm_audio;
+
+wave_sound #(40000000) wave_sound
+(
+	.I_CLK(clk_sys),
+	.I_RST(reset | ~wav_loaded),
+
+	.I_BASE_ADDR(0),
+	.I_LOOP(1),
+	.I_PAUSE(pause),
+
+	.O_ADDR(wav_addr),        // output address to wave ROM
+	.O_READ(wav_want_byte),   // read a byte
+	.I_DATA(wav_data),        // Data coming back from wave ROM
+	.I_READY(wav_data_ready), // read a byte
+
+	.O_PCM(pcm_audio)
+);
+
+wire [16:0] j_pre_aud_l = ({{2{pcm_audio[15]}},pcm_audio[15:1]} + {1'b0,audio_l});
+wire [16:0] j_pre_aud_r = ({{2{pcm_audio[15]}},pcm_audio[15:1]} + {1'b0,audio_r});
+
+reg [15:0] j_aud_l,j_aud_r;
+always @(posedge clk_sys) begin
+	if(^j_pre_aud_l[16:15]) j_aud_l <= {15{j_pre_aud_l[16]}};
+	else j_aud_l <= j_pre_aud_l[15:0];
+
+	if(^j_pre_aud_r[16:15]) j_aud_r <= {15{j_pre_aud_r[16]}};
+	else j_aud_r <= j_pre_aud_r[15:0];
+end
 
 endmodule
