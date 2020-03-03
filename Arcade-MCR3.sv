@@ -257,10 +257,9 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.ioctl_index(ioctl_index),
 	.ioctl_wait(ioctl_wait),
 
-	// .joystick_0(joy1),
-	// .joystick_1(joy2),
 	.joystick_0(joy1_USB),
 	.joystick_1(joy2_USB),
+	.joy_raw({joydb9md_1[4],joydb9md_1[6],joydb9md_1[3:0]}), //Menu Dirs, A:Action B:Back (OSD)
 
 	.spinner_0(sp1),
 	.spinner_1(sp2),
