@@ -13,3 +13,4 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/ddram.sv
 set_global_assignment -name VHDL_FILE rtl/mcr3.vhd
 set_global_assignment -name SYSTEMVERILOG_FILE Arcade-MCR3.sv
 set_global_assignment -name VERILOG_FILE rtl/joydb9md.v
+set_global_assignment -name VERILOG_FILE rtl/joydb15.v
