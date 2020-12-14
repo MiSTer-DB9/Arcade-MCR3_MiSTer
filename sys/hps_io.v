@@ -480,11 +480,14 @@ always@(posedge clk_sys) begin : uio_block
 							{gamma_wr, gamma_value} <= {1'b1,io_din[7:0]};
 							if (byte_cnt[1:0] == 3) byte_cnt <= 1;
 						end
-			endcase
+			
+			
  				// Reading user_io raw joy
 				'h0f: io_dout <= joy_raw;
-// buttons and switches
-'h01: cfg <= io_din; 
+				// buttons and switches
+				'h01: cfg <= io_din; 
+				
+			endcase
 		end
 	end
 end
