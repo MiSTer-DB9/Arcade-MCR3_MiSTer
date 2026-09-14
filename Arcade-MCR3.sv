@@ -58,6 +58,8 @@ module emu
 	input  [11:0] HDMI_WIDTH,
 	input  [11:0] HDMI_HEIGHT,
 	output        HDMI_FREEZE,
+	output        HDMI_BLACKOUT,
+	output        HDMI_BOB_DEINT,
 
 `ifdef MISTER_FB
 	// Use framebuffer in DDRAM
@@ -191,6 +193,8 @@ assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQM
 assign VGA_F1    = 0;
 assign VGA_SCALER= 0;
 assign VGA_DISABLE = 0;
+assign HDMI_BLACKOUT = 0;
+assign HDMI_BOB_DEINT = 0;
 
 assign LED_USER  = ioctl_download;
 // [MiSTer-DB9 BEGIN] - DB9/SNAC8 support: joydb wrapper
@@ -646,6 +650,7 @@ arcade_video #(512,9) arcade_video
 wire no_rotate = status[2] | direct_video | landscape;
 wire rotate_ccw = 0;
 wire flip       = 0;
+wire core_flip  = status[7];
 
 assign {FB_PAL_CLK, FB_FORCE_BLANK, FB_PAL_ADDR, FB_PAL_DOUT, FB_PAL_WR} = '0;
 ddram ddram (.*, .s_wr(0),.s_din(0),.s_be(0));
@@ -666,7 +671,8 @@ mcr3 mcr3
 	.video_hblank(hblank),
 	.video_hs(hs),
 	.video_vs(vs),
-	.video_hflip(mod_dotron),
+	.video_hflip(mod_dotron ^ core_flip),
+	.video_vflip(core_flip),
 	.tv15Khz_mode(~hires),
 	.separate_audio(status[6]),
 	.audio_out_l(audio_l),
